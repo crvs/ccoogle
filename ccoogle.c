@@ -63,6 +63,7 @@ void processFile(char* file_path)
                if (
                        have_open_paren /* at least one parenthesis */ &&
                        have_open_paren == have_close_paren && min_paren_depth == 0 /* parenthesis properly nested */ &&
+                       signature[0][0] != '(' && /* not a c-style cast */
                        strcmp(signature[0], "typedef") /* not a typedef*/ )
                {
                    stb_lex_location loc = {0};
@@ -72,7 +73,19 @@ void processFile(char* file_path)
                    {
                        // ignore extern keyword
                        if (j == 0 && strcmp(signature[j], "extern") == 0) continue;
-                       printf("%s ", signature[j]);
+
+                       // // ignore names of variables
+                       // if (j + 1 < i && signature[j + 1][0] == ',') continue;
+
+                       printf("%s", signature[j]);
+
+                       if (signature[j][0] == '(') continue;
+
+                       /// if ((j + 2 < i) && (signature[j + 2][0] == ',')) continue;
+
+                       if ((j + 1 < i) && (signature[j + 1][0] == '(' || signature[j + 1][0] == ')' || signature[j + 1][0] == '*')) continue;
+
+                       printf(" ");
                    }
                    printf("\n");
                }
