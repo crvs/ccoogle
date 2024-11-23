@@ -13,10 +13,13 @@ void processFile(char* file_path)
 {
     FILE* handle = fopen(file_path, "r");
 
+    /// TODO: dynamically size the input stream (may want to use stat)
     char input[INPUT_MAX_SIZE] = {0};
+    /// TODO: dynamically size the signature
     char signature[SIG_COMPONENTS][SIG_COMP_SIZE] = {0};
 
     size_t end = fread(input, 1, INPUT_MAX_SIZE, handle);
+    fclose(handle);
 
     char storage[INPUT_MAX_SIZE] = {0};
     stb_lexer lexer;
