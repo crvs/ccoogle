@@ -26,17 +26,17 @@ void processFile(char* file_path)
     int have_open_paren = 0;
     int have_close_paren = 0;
     int paren_depth = 0;
-    int min_paren_depth = 0;
+    bool nested_parens = true;
     char* signature_start;
 
     while(stb_c_lexer_get_token(&lexer))
     {
-
         if (i == 0)
         {
             signature_start = lexer.where_firstchar;
         }
 
+        if (paren_depth < 0) nested_parens = false;
         switch (lexer.token)
         {
             // TODO: to get this to handle C++ we need to be able to handle <, > and :: for template matching
@@ -46,7 +46,6 @@ void processFile(char* file_path)
             case ')':
                 signature[i++][0] = lexer.token;
                 paren_depth--;
-                if (min_paren_depth < paren_depth) min_paren_depth = paren_depth;
                 have_close_paren++;
                 break;
             case '(':
@@ -62,7 +61,7 @@ void processFile(char* file_path)
                /// emit signature if valid
                if (
                        have_open_paren /* at least one parenthesis */ &&
-                       have_open_paren == have_close_paren && min_paren_depth == 0 /* parenthesis properly nested */ &&
+                       have_open_paren == have_close_paren && nested_parens /* parenthesis properly nested */ &&
                        signature[0][0] != '(' && /* not a c-style cast */
                        strcmp(signature[0], "typedef") /* not a typedef*/ )
                {
@@ -72,25 +71,21 @@ void processFile(char* file_path)
                    for (int j = 0; j < i; ++j)
                    {
                        // ignore extern keyword
-                       if (j == 0 && strcmp(signature[j], "extern") == 0) continue;
-
-                       // // ignore names of variables
-                       // if (j + 1 < i && signature[j + 1][0] == ',') continue;
+                       if ((j == 0) && (strcmp(signature[j], "extern") == 0)) continue;
 
                        printf("%s", signature[j]);
 
                        if (signature[j][0] == '(') continue;
-
-                       /// if ((j + 2 < i) && (signature[j + 2][0] == ',')) continue;
-
-                       if ((j + 1 < i) && (signature[j + 1][0] == '(' || signature[j + 1][0] == ')' || signature[j + 1][0] == '*')) continue;
-
+                       if ((j + 1 < i) && (signature[j + 1][0] == '(')) continue;
+                       if ((j + 1 < i) && (signature[j + 1][0] == ')')) continue;
+                       if ((j + 1 < i) && (signature[j + 1][0] == '*')) continue;
                        printf(" ");
                    }
                    printf("\n");
                }
                /// reset data for next candidate signature
-               min_paren_depth = 0;
+               paren_depth = 0;
+               nested_parens = true;
                have_open_paren = 0;
                have_close_paren = 0;
                for (int j = 0; j < i; ++j)
