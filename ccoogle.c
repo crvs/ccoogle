@@ -9,6 +9,12 @@
 #define SIG_COMPONENTS 100
 #define SIG_COMP_SIZE 100
 
+bool isTypeQualifier(char* string)
+{
+    return !(strcmp(string, "const") || strcmp(string, "volatile") || strcmp(string, "extern"));
+}
+
+
 void processFile(char* file_path)
 {
     FILE* handle = fopen(file_path, "r");
@@ -28,6 +34,7 @@ void processFile(char* file_path)
     int i = 0;
     int have_open_paren = 0;
     int have_close_paren = 0;
+    int num_ids_before_paren = 0;
     int paren_depth = 0;
     bool nested_parens = true;
     char* signature_start;
@@ -45,6 +52,7 @@ void processFile(char* file_path)
             // TODO: to get this to handle C++ we need to be able to handle <, > and :: for template matching
             case CLEX_id:
                 strlcpy(signature[i++], lexer.string, SIG_COMP_SIZE);
+                if (have_open_paren == 0 && isTypeQualifier(lexer.string) == 0) num_ids_before_paren++;
                 break;
             case ')':
                 signature[i++][0] = lexer.token;
@@ -65,7 +73,8 @@ void processFile(char* file_path)
                if (
                        have_open_paren /* at least one parenthesis */ &&
                        have_open_paren == have_close_paren && nested_parens /* parenthesis properly nested */ &&
-                       signature[0][0] != '(' && /* not a c-style cast */
+                       signature[0][0] != '(' /* not a c-style cast */ &&
+                       num_ids_before_paren >= 2 /* need type and function name */ &&
                        strcmp(signature[0], "typedef") /* not a typedef*/ )
                {
                    stb_lex_location loc = {0};
@@ -91,6 +100,7 @@ void processFile(char* file_path)
                nested_parens = true;
                have_open_paren = 0;
                have_close_paren = 0;
+               num_ids_before_paren = 0;
                for (int j = 0; j < i; ++j)
                {
                    memset(signature[j], 0, SIG_COMP_SIZE);
