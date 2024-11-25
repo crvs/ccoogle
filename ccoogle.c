@@ -2,9 +2,9 @@
 #include "stb_c_lexer.h"
 
 #include <sys/stat.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
 
 typedef struct SB { size_t capacity; size_t size; char* data; } SB;
 #define SB_INIT(CAPACITY) {.capacity = CAPACITY, .size = 0, .data = malloc(CAPACITY) }
@@ -15,9 +15,16 @@ typedef struct SB { size_t capacity; size_t size; char* data; } SB;
 #define SB_NPRINTF(sb, N, ...) do { SB_EXTENDTOFIT(sb, N); SB_PRINTF(sb, __VA_ARGS__); } while (0)
 #define SB_RESET(sb) do { memset(sb.data, 0, sb.size); sb.size = 0; } while (0)
 
-bool isTypeQualifier(char* string)
+
+bool isKeyWord(char* string)
 {
-    return !(strcmp(string, "const") || strcmp(string, "volatile") || strcmp(string, "extern"));
+    return !(
+            strcmp(string, "return") &&
+            strcmp(string, "static") &&
+            strcmp(string, "const") &&
+            strcmp(string, "volatile") &&
+            strcmp(string, "extern")
+    );
 }
 
 
@@ -61,7 +68,7 @@ void processFile(char* file_path)
             case CLEX_id:
                 // ignore extern and static keywords when printing
                 if (strcmp(lexer.string, "extern") == 0 || strcmp(lexer.string, "static") == 0) continue;
-                if (have_open_paren == 0 && isTypeQualifier(lexer.string) == 0) num_ids_before_paren++;
+                if (have_open_paren == 0 && isKeyWord(lexer.string) == 0) num_ids_before_paren++;
                 if (i == 0 || signature.data[signature.size - 1] == '(')
                     SB_NPRINTF(signature, lexer.string_len + 50, "%s", lexer.string);
                 else
@@ -82,9 +89,7 @@ void processFile(char* file_path)
                        have_open_paren /* at least one parenthesis */ &&
                        have_open_paren == have_close_paren && nested_parens /* parenthesis properly nested */ &&
                        signature.data[0] != '(' /* not a c-style cast */ &&
-                       num_ids_before_paren >= 2 /* need type and function name */ &&
-                       strncmp(signature.data, "typedef", 7) /* not a typedef */ &&
-                       strncmp(signature.data, "return", 6) /* not a return */ )
+                       num_ids_before_paren >= 2 /* need type and function name */)
                {
                    stb_lex_location loc = {0};
                    stb_c_lexer_get_location(&lexer, signature_start, &loc);
