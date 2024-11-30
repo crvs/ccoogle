@@ -1,13 +1,19 @@
 #define STB_C_LEXER_IMPLEMENTATION
 #include "stb_c_lexer.h"
 
+#include <sys/stat.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
 
-#define INPUT_MAX_SIZE 600000
-#define SIG_COMPONENTS 100
-#define SIG_COMP_SIZE 100
+typedef struct SB { size_t capacity; size_t size; char* data; } SB;
+#define SB_INIT(CAPACITY) {.capacity = CAPACITY, .size = 0, .data = malloc(CAPACITY) }
+#define SB_HEAD(sb) &(sb.data[sb.size])
+#define SB_CAP(sb) (sb.capacity - sb.size)
+#define SB_EXTENDTOFIT(sb, EXTRACAP) do { if (SB_CAP(sb) < EXTRACAP + 1) { sb.capacity = sb.size + EXTRACAP + 1; sb.data = realloc(sb.data, sb.capacity); } } while (0)
+#define SB_PRINTF(sb, ...) do { sb.size += snprintf(SB_HEAD(sb), SB_CAP(sb), __VA_ARGS__); } while(0)
+#define SB_NPRINTF(sb, N, ...) do { SB_EXTENDTOFIT(sb, N); SB_PRINTF(sb, __VA_ARGS__); } while (0)
+#define SB_RESET(sb) do { memset(sb.data, 0, sb.size); sb.size = 0; } while (0)
 
 bool isTypeQualifier(char* string)
 {
@@ -19,17 +25,19 @@ void processFile(char* file_path)
 {
     FILE* handle = fopen(file_path, "r");
 
-    /// TODO: dynamically size the input stream (may want to use stat)
-    char input[INPUT_MAX_SIZE] = {0};
-    /// TODO: dynamically size the signature
-    char signature[SIG_COMPONENTS][SIG_COMP_SIZE] = {0};
+    struct stat file_stat = {0};
+    stat(file_path, &file_stat);
+    size_t input_size = (file_stat.st_blocks + 10) * 512;
+    char* input = malloc(input_size);
+    memset(input, 0, input_size);
+    SB signature = SB_INIT(50);
 
-    size_t end = fread(input, 1, INPUT_MAX_SIZE, handle);
+    size_t end = fread(input, 1, input_size, handle);
     fclose(handle);
 
-    char storage[INPUT_MAX_SIZE] = {0};
+    char storage[1000] = {0};
     stb_lexer lexer;
-    stb_c_lexer_init(&lexer, input, &input[end], storage, INPUT_MAX_SIZE);
+    stb_c_lexer_init(&lexer, input, &input[end], storage, 1000);
 
     int i = 0;
     int have_open_paren = 0;
@@ -51,49 +59,36 @@ void processFile(char* file_path)
         {
             // TODO: to get this to handle C++ we need to be able to handle <, > and :: for template matching
             case CLEX_id:
-                strlcpy(signature[i++], lexer.string, SIG_COMP_SIZE);
+                // ignore extern and static keywords when printing
+                if (strcmp(lexer.string, "extern") == 0 || strcmp(lexer.string, "static") == 0) continue;
                 if (have_open_paren == 0 && isTypeQualifier(lexer.string) == 0) num_ids_before_paren++;
+                if (i == 0 || signature.data[signature.size - 1] == '(')
+                    SB_NPRINTF(signature, lexer.string_len + 50, "%s", lexer.string);
+                else
+                    SB_NPRINTF(signature, lexer.string_len + 50, " %s", lexer.string);
                 break;
             case ')':
-                signature[i++][0] = lexer.token;
-                paren_depth--;
-                have_close_paren++;
-                break;
             case '(':
-                signature[i++][0] = lexer.token;
-                paren_depth++;
-                have_open_paren++;
-                break;
             case '*':
             case ',':
-                signature[i++][0] = lexer.token;
+                have_open_paren += (lexer.token == '(');
+                have_close_paren += (lexer.token == ')');
+                paren_depth = have_open_paren - have_close_paren;
+                SB_NPRINTF(signature, 1, "%c", (char)lexer.token);
                 break;
             default:
                /// emit signature if valid
                if (
                        have_open_paren /* at least one parenthesis */ &&
                        have_open_paren == have_close_paren && nested_parens /* parenthesis properly nested */ &&
-                       signature[0][0] != '(' /* not a c-style cast */ &&
+                       signature.data[0] != '(' /* not a c-style cast */ &&
                        num_ids_before_paren >= 2 /* need type and function name */ &&
-                       strcmp(signature[0], "typedef") /* not a typedef*/ )
+                       strncmp(signature.data, "typedef", 7) /* not a typedef */ &&
+                       strncmp(signature.data, "return", 6) /* not a return */ )
                {
                    stb_lex_location loc = {0};
                    stb_c_lexer_get_location(&lexer, signature_start, &loc);
-                   printf("%s|%d| ", file_path, loc.line_number);
-                   for (int j = 0; j < i; ++j)
-                   {
-                       // ignore extern keyword
-                       if ((j == 0) && (strcmp(signature[j], "extern") == 0)) continue;
-
-                       printf("%s", signature[j]);
-
-                       if (signature[j][0] == '(') continue;
-                       if ((j + 1 < i) && (signature[j + 1][0] == '(')) continue;
-                       if ((j + 1 < i) && (signature[j + 1][0] == ')')) continue;
-                       if ((j + 1 < i) && (signature[j + 1][0] == '*')) continue;
-                       printf(" ");
-                   }
-                   printf("\n");
+                   printf("%s|%d| %s\n", file_path, loc.line_number, signature.data);
                }
                /// reset data for next candidate signature
                paren_depth = 0;
@@ -101,13 +96,13 @@ void processFile(char* file_path)
                have_open_paren = 0;
                have_close_paren = 0;
                num_ids_before_paren = 0;
-               for (int j = 0; j < i; ++j)
-               {
-                   memset(signature[j], 0, SIG_COMP_SIZE);
-               }
+               SB_RESET(signature);
                i = 0;
+               continue;
         }
+        i++;
     }
+    free(input);
 }
 
 int main(int argc, char** argv) {
